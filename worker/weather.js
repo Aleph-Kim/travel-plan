@@ -26,6 +26,14 @@ async function readForecast(locations, timezone, start, end) {
   if (!response.ok) {
     const error = new Error(`Open-Meteo HTTP ${response.status}`);
     error.status = response.status;
+    if (response.status === 429) {
+      const body = await response.json().catch(() => null);
+      error.rateLimit = {
+        reason: typeof body?.reason === 'string' ? body.reason.slice(0, 240) : null,
+        retryAfter: response.headers.get('retry-after'),
+        rayId: response.headers.get('cf-ray'),
+      };
+    }
     throw error;
   }
   const forecast = await response.json();
@@ -137,7 +145,10 @@ async function updateWeatherTrip(db, trip, now) {
       : { slug: trip.slug, status: 'superseded' };
   } catch (error) {
     // 제공사의 요청 제한은 다음 시간에 다시 확인합니다.
-    if (error.status === 429) return { slug: trip.slug, status: 'rate_limited' };
+    if (error.status === 429) {
+      console.error('Open-Meteo rate limited', JSON.stringify({ slug: trip.slug, ...error.rateLimit }));
+      return { slug: trip.slug, status: 'rate_limited' };
+    }
     // 같은 시간의 재시도는 허용하고 이미 저장된 예보는 유지합니다.
     await db.prepare('UPDATE trips SET weather_checked_at = ? WHERE slug = ? AND weather_checked_at = ?')
       .bind(hourStart - 1, trip.slug, now).run();
