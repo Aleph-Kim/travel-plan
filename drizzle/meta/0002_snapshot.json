@@ -1,0 +1,650 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "2d0a0554-0396-4cd5-87a7-ae10f30767b6",
+  "prevId": "5b2f6dd9-7d74-4821-a97a-93beaa62f8e1",
+  "tables": {
+    "dataset_state": {
+      "name": "dataset_state",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "dataset_state_singleton": {
+          "name": "dataset_state_singleton",
+          "value": "\"dataset_state\".\"id\" = 1"
+        },
+        "dataset_state_revision_positive": {
+          "name": "dataset_state_revision_positive",
+          "value": "\"dataset_state\".\"revision\" > 0"
+        }
+      }
+    },
+    "trip_documents": {
+      "name": "trip_documents",
+      "columns": {
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "body": {
+          "name": "body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "trip_documents_slug_trips_slug_fk": {
+          "name": "trip_documents_slug_trips_slug_fk",
+          "tableFrom": "trip_documents",
+          "tableTo": "trips",
+          "columnsFrom": [
+            "slug"
+          ],
+          "columnsTo": [
+            "slug"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "trip_documents_slug_kind_pk": {
+          "columns": [
+            "slug",
+            "kind"
+          ],
+          "name": "trip_documents_slug_kind_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "trip_documents_kind_valid": {
+          "name": "trip_documents_kind_valid",
+          "value": "\"trip_documents\".\"kind\" IN ('plan', 'i18n', 'weather')"
+        },
+        "trip_documents_body_valid": {
+          "name": "trip_documents_body_valid",
+          "value": "json_valid(\"trip_documents\".\"body\")"
+        }
+      }
+    },
+    "trips": {
+      "name": "trips",
+      "columns": {
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name_json": {
+          "name": "name_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "starts_on": {
+          "name": "starts_on",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ends_on": {
+          "name": "ends_on",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "timezone": {
+          "name": "timezone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "weather_checked_at": {
+          "name": "weather_checked_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "weather_retry_at": {
+          "name": "weather_retry_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "trips_name_valid": {
+          "name": "trips_name_valid",
+          "value": "json_valid(\"trips\".\"name_json\")"
+        },
+        "trips_date_range": {
+          "name": "trips_date_range",
+          "value": "\"trips\".\"ends_on\" >= \"trips\".\"starts_on\""
+        }
+      }
+    },
+    "trip_plan_settings": {
+      "name": "trip_plan_settings",
+      "columns": {
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "details": {
+          "name": "details",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "trip_plan_settings_slug_trips_slug_fk": {
+          "name": "trip_plan_settings_slug_trips_slug_fk",
+          "tableFrom": "trip_plan_settings",
+          "tableTo": "trips",
+          "columnsFrom": [
+            "slug"
+          ],
+          "columnsTo": [
+            "slug"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "trip_plan_settings_details_valid": {
+          "name": "trip_plan_settings_details_valid",
+          "value": "json_type(`details`) = 'object'"
+        }
+      }
+    },
+    "trip_days": {
+      "name": "trip_days",
+      "columns": {
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "date": {
+          "name": "date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "position": {
+          "name": "position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "full_label": {
+          "name": "full_label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "default_plan": {
+          "name": "default_plan",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "details": {
+          "name": "details",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "trip_days_slug_trips_slug_fk": {
+          "name": "trip_days_slug_trips_slug_fk",
+          "tableFrom": "trip_days",
+          "tableTo": "trips",
+          "columnsFrom": [
+            "slug"
+          ],
+          "columnsTo": [
+            "slug"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "trip_days_slug_date_pk": {
+          "columns": [
+            "slug",
+            "date"
+          ],
+          "name": "trip_days_slug_date_pk"
+        }
+      },
+      "uniqueConstraints": {
+        "trip_days_position_unique": {
+          "name": "trip_days_position_unique",
+          "columns": [
+            "slug",
+            "position"
+          ]
+        }
+      },
+      "checkConstraints": {
+        "trip_days_details_valid": {
+          "name": "trip_days_details_valid",
+          "value": "json_type(`details`) = 'object'"
+        }
+      }
+    },
+    "trip_day_plans": {
+      "name": "trip_day_plans",
+      "columns": {
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "date": {
+          "name": "date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "plan_key": {
+          "name": "plan_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "position": {
+          "name": "position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "weather_location": {
+          "name": "weather_location",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "details": {
+          "name": "details",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "trip_day_plans_slug_date_trip_days_slug_date_fk": {
+          "name": "trip_day_plans_slug_date_trip_days_slug_date_fk",
+          "tableFrom": "trip_day_plans",
+          "tableTo": "trip_days",
+          "columnsFrom": [
+            "slug",
+            "date"
+          ],
+          "columnsTo": [
+            "slug",
+            "date"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "trip_day_plans_slug_date_plan_key_pk": {
+          "columns": [
+            "slug",
+            "date",
+            "plan_key"
+          ],
+          "name": "trip_day_plans_slug_date_plan_key_pk"
+        }
+      },
+      "uniqueConstraints": {
+        "trip_day_plans_position_unique": {
+          "name": "trip_day_plans_position_unique",
+          "columns": [
+            "slug",
+            "date",
+            "position"
+          ]
+        }
+      },
+      "checkConstraints": {
+        "trip_day_plans_details_valid": {
+          "name": "trip_day_plans_details_valid",
+          "value": "json_type(`details`) = 'object'"
+        }
+      }
+    },
+    "trip_items": {
+      "name": "trip_items",
+      "columns": {
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "item_index": {
+          "name": "item_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "time": {
+          "name": "time",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "card_type": {
+          "name": "card_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "cost": {
+          "name": "cost",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "details": {
+          "name": "details",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "trip_items_slug_trips_slug_fk": {
+          "name": "trip_items_slug_trips_slug_fk",
+          "tableFrom": "trip_items",
+          "tableTo": "trips",
+          "columnsFrom": [
+            "slug"
+          ],
+          "columnsTo": [
+            "slug"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "trip_items_slug_item_index_pk": {
+          "columns": [
+            "slug",
+            "item_index"
+          ],
+          "name": "trip_items_slug_item_index_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "trip_items_details_valid": {
+          "name": "trip_items_details_valid",
+          "value": "json_type(`details`) = 'object'"
+        }
+      }
+    },
+    "trip_day_plan_items": {
+      "name": "trip_day_plan_items",
+      "columns": {
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "date": {
+          "name": "date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "plan_key": {
+          "name": "plan_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "condition": {
+          "name": "condition",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "position": {
+          "name": "position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "item_index": {
+          "name": "item_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "trip_day_plan_items_item_idx": {
+          "name": "trip_day_plan_items_item_idx",
+          "columns": [
+            "slug",
+            "item_index"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "trip_day_plan_items_slug_item_index_trip_items_slug_item_index_fk": {
+          "name": "trip_day_plan_items_slug_item_index_trip_items_slug_item_index_fk",
+          "tableFrom": "trip_day_plan_items",
+          "tableTo": "trip_items",
+          "columnsFrom": [
+            "slug",
+            "item_index"
+          ],
+          "columnsTo": [
+            "slug",
+            "item_index"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "trip_day_plan_items_slug_date_plan_key_trip_day_plans_slug_date_plan_key_fk": {
+          "name": "trip_day_plan_items_slug_date_plan_key_trip_day_plans_slug_date_plan_key_fk",
+          "tableFrom": "trip_day_plan_items",
+          "tableTo": "trip_day_plans",
+          "columnsFrom": [
+            "slug",
+            "date",
+            "plan_key"
+          ],
+          "columnsTo": [
+            "slug",
+            "date",
+            "plan_key"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "trip_day_plan_items_slug_date_plan_key_condition_position_pk": {
+          "columns": [
+            "slug",
+            "date",
+            "plan_key",
+            "condition",
+            "position"
+          ],
+          "name": "trip_day_plan_items_slug_date_plan_key_condition_position_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "trip_day_plan_items_condition_valid": {
+          "name": "trip_day_plan_items_condition_valid",
+          "value": "`condition` IN ('sun', 'rain')"
+        }
+      }
+    }
+  },
+  "views": {
+    "trip_plan_documents": {
+      "name": "trip_plan_documents",
+      "columns": {
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "body": {
+          "name": "body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "isExisting": false,
+      "definition": "WITH item_positions AS (\n\tSELECT *, row_number() OVER (PARTITION BY slug ORDER BY item_index) - 1 AS response_index\n\tFROM trip_items\n)\nSELECT s.slug, json_set(s.details,\n\t'$.days', json((\n\t\tSELECT json_group_array(json(day_body)) FROM (\n\t\t\tSELECT json_set(d.details, '$.date', d.date, '$.label', d.label, '$.full', d.full_label,\n\t\t\t\t'$.default', d.default_plan, '$.plans', json((\n\t\t\t\t\tSELECT json_group_object(plan_key, json(plan_body)) FROM (\n\t\t\t\t\t\tSELECT p.plan_key, json_set(p.details, '$.title', p.title, '$.weather', p.weather_location,\n\t\t\t\t\t\t\t'$.sun', json((\n\t\t\t\t\t\t\t\tSELECT json_group_array(response_index) FROM (\n\t\t\t\t\t\t\t\t\tSELECT pos.response_index FROM trip_day_plan_items i\n\t\t\t\t\t\t\t\t\tJOIN item_positions pos USING (slug, item_index)\n\t\t\t\t\t\t\t\t\tWHERE (i.slug, i.date, i.plan_key, i.condition) = (p.slug, p.date, p.plan_key, 'sun')\n\t\t\t\t\t\t\t\t\tORDER BY i.position\n\t\t\t\t\t\t\t\t)\n\t\t\t\t\t\t\t)),\n\t\t\t\t\t\t\t'$.rain', json((\n\t\t\t\t\t\t\t\tSELECT json_group_array(response_index) FROM (\n\t\t\t\t\t\t\t\t\tSELECT pos.response_index FROM trip_day_plan_items i\n\t\t\t\t\t\t\t\t\tJOIN item_positions pos USING (slug, item_index)\n\t\t\t\t\t\t\t\t\tWHERE (i.slug, i.date, i.plan_key, i.condition) = (p.slug, p.date, p.plan_key, 'rain')\n\t\t\t\t\t\t\t\t\tORDER BY i.position\n\t\t\t\t\t\t\t\t)\n\t\t\t\t\t\t\t))\n\t\t\t\t\t\t) AS plan_body\n\t\t\t\t\t\tFROM trip_day_plans p WHERE (p.slug, p.date) = (d.slug, d.date)\n\t\t\t\t\t\tORDER BY p.position\n\t\t\t\t\t)\n\t\t\t\t))\n\t\t\t) AS day_body\n\t\t\tFROM trip_days d WHERE d.slug = s.slug ORDER BY d.position\n\t\t)\n\t)),\n\t'$.items', json((\n\t\tSELECT json_group_array(json(item_body)) FROM (\n\t\t\tSELECT json_patch(i.details, json_patch('{}', json_object(\n\t\t\t\t'time', i.time, 'type', i.card_type, 'name', i.name,\n\t\t\t\t'title', i.title, 'note', i.note, 'cost', i.cost\n\t\t\t))) AS item_body\n\t\t\tFROM trip_items i WHERE i.slug = s.slug ORDER BY i.item_index\n\t\t)\n\t))\n) AS body\nFROM trip_plan_settings s\nUNION ALL\nSELECT d.slug, d.body FROM trip_documents d\nWHERE d.kind = 'plan' AND NOT EXISTS (\n\tSELECT 1 FROM trip_plan_settings s WHERE s.slug = d.slug\n)"
+    }
+  },
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}

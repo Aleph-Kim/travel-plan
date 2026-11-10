@@ -30,7 +30,9 @@ async function collect(directory = '') {
 await collect();
 const modules = await Promise.all(['weather.js', 'index.js'].map((name) =>
   readFile(new URL('worker/' + name, root), 'utf8')));
+const itineraryBackfill = (await readFile(new URL('scripts/backfill-trip-itineraries.sql', root), 'utf8'))
+  .split('--> statement-breakpoint').map((statement) => statement.trim());
 const output = new URL('dist/server/', root);
 await mkdir(output, { recursive: true });
 await writeFile(new URL('index.js', output),
-  `const assets = ${JSON.stringify(assets)};\n${modules.join('\n')}`);
+  `const assets = ${JSON.stringify(assets)};\nconst itineraryBackfill = ${JSON.stringify(itineraryBackfill)};\n${modules.join('\n')}`);

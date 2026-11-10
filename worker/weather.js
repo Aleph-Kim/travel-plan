@@ -1,5 +1,9 @@
 const forecastDays = 16;
 const hourMs = 60 * 60 * 1000;
+const weatherClaimMs = 60_000;
+const forecastTimeoutMs = 10_000;
+const concurrentRetryDelayMs = 2_000;
+const maxInlineRetryDelayMs = 5_000;
 const forecastUrl = 'https://api.open-meteo.com/v1/forecast';
 const hourlyFields = ['temperature_2m', 'apparent_temperature', 'precipitation_probability',
   'precipitation', 'weather_code', 'wind_speed_10m', 'relative_humidity_2m'];
@@ -13,6 +17,33 @@ function dateAfter(date, days) {
   return new Date(Date.parse(date) + days * 24 * hourMs).toISOString().slice(0, 10);
 }
 
+function retryAfterTime(header, now) {
+  if (!header) return null;
+  const time = /^\d+$/.test(header) ? now + Number(header) * 1000 : Date.parse(header);
+  return Number.isNaN(new Date(time).getTime()) ? null : Math.max(time, now);
+}
+
+async function requestForecast(url) {
+  const response = await fetch(url, { signal: AbortSignal.timeout(forecastTimeoutMs) });
+  if (response.ok) return response.json();
+
+  const error = new Error(`Open-Meteo HTTP ${response.status}`);
+  error.status = response.status;
+  if (response.status === 429) {
+    const body = await response.json().catch(() => null);
+    const retryAfter = response.headers.get('retry-after');
+    error.rateLimit = {
+      reason: typeof body?.reason === 'string' ? body.reason.slice(0, 240) : null,
+      retryAfter,
+      rayId: response.headers.get('cf-ray'),
+    };
+    error.retryAt = retryAfterTime(retryAfter, Date.now());
+  } else {
+    await response.body?.cancel().catch(() => {});
+  }
+  throw error;
+}
+
 async function readForecast(locations, timezone, start, end) {
   const entries = Object.entries(locations);
   const url = new URL(forecastUrl);
@@ -22,21 +53,15 @@ async function readForecast(locations, timezone, start, end) {
     timezone, start_date: start, end_date: end, wind_speed_unit: 'ms',
     daily: Object.values(dailyFields).join(','), hourly: hourlyFields.join(','),
   });
-  const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
-  if (!response.ok) {
-    const error = new Error(`Open-Meteo HTTP ${response.status}`);
-    error.status = response.status;
-    if (response.status === 429) {
-      const body = await response.json().catch(() => null);
-      error.rateLimit = {
-        reason: typeof body?.reason === 'string' ? body.reason.slice(0, 240) : null,
-        retryAfter: response.headers.get('retry-after'),
-        rayId: response.headers.get('cf-ray'),
-      };
-    }
-    throw error;
+  let forecast;
+  try {
+    forecast = await requestForecast(url);
+  } catch (error) {
+    const delay = Math.max(concurrentRetryDelayMs, (error.retryAt ?? 0) - Date.now());
+    if (error.rateLimit?.reason !== 'Too many concurrent requests' || delay > maxInlineRetryDelayMs) throw error;
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    forecast = await requestForecast(url);
   }
-  const forecast = await response.json();
   const rows = Array.isArray(forecast) ? forecast : [forecast];
   if (rows.length !== entries.length) throw new Error('Open-Meteo returned an incomplete location list');
   return Object.fromEntries(entries.map(([key], index) => [key, formatForecast(rows[index])]));
@@ -114,7 +139,26 @@ function assignWeatherPlan(plan, data, previous, today) {
   return { plan: assignment, rain };
 }
 
-async function updateWeatherTrip(db, trip, now) {
+async function weatherClaimStatus(db, slug, hourStart) {
+  const state = await db.prepare(`
+    SELECT t.weather_checked_at, t.weather_retry_at, json_extract(w.body, '$.updatedAt') AS updated_at
+    FROM trips t
+    LEFT JOIN trip_documents w ON w.slug = t.slug AND w.kind = 'weather'
+    WHERE t.slug = ?
+  `).bind(slug).first();
+  if (!state) return { slug, status: 'superseded' };
+  const updatedAt = state.updated_at ?? null;
+  if (Date.parse(updatedAt) >= hourStart) return { slug, status: 'already_checked', updatedAt };
+  const now = Date.now();
+  if (state.weather_retry_at > now) {
+    return { slug, status: 'rate_limited', updatedAt, retryAt: new Date(state.weather_retry_at).toISOString() };
+  }
+  const status = state.weather_checked_at > now - weatherClaimMs ? 'in_progress' : 'failed';
+  return { slug, status, updatedAt };
+}
+
+async function updateWeatherTrip(db, trip) {
+  const now = Date.now();
   const today = new Date(now).toLocaleDateString('sv-SE', { timeZone: trip.timezone });
   const plan = JSON.parse(trip.plan_body);
   const start = plan.days[0].date;
@@ -124,51 +168,64 @@ async function updateWeatherTrip(db, trip, now) {
 
   const hourStart = Math.floor(now / hourMs) * hourMs;
   const claim = await db.prepare(`
-    UPDATE trips SET weather_checked_at = ? WHERE slug = ? AND weather_checked_at < ?
-  `).bind(now, trip.slug, hourStart).run();
-  if (!claim.meta.changes) return { slug: trip.slug, status: 'already_checked' };
+    UPDATE trips SET weather_checked_at = ?1
+    WHERE slug = ?2 AND weather_checked_at <= ?3 AND weather_retry_at <= ?1
+      AND NOT EXISTS (
+        SELECT 1 FROM trip_documents
+        WHERE slug = ?2 AND kind = 'weather'
+          AND julianday(json_extract(body, '$.updatedAt')) >= julianday(?4)
+      )
+    RETURNING (SELECT body FROM trip_documents WHERE slug = trips.slug AND kind = 'weather') AS weather_body
+  `).bind(now, trip.slug, now - weatherClaimMs, new Date(hourStart).toISOString()).first();
+  if (!claim) return weatherClaimStatus(db, trip.slug, hourStart);
+
+  const release = (retryAt = 0) => db.prepare(`
+    UPDATE trips SET weather_checked_at = 0, weather_retry_at = ?
+    WHERE slug = ? AND weather_checked_at = ?
+  `).bind(retryAt, trip.slug, now);
+  const previous = JSON.parse(claim.weather_body ?? '{}') ?? {};
 
   try {
     const data = await readForecast(plan.locations, trip.timezone, start, until);
-    const previous = trip.weather_body ? JSON.parse(trip.weather_body) : {};
-    const updatedAt = new Date(now).toISOString();
+    const updatedAt = new Date().toISOString();
     const weather = { updatedAt, data, ...assignWeatherPlan(plan, data, previous, today) };
-    const saved = await db.prepare(`
+    const save = db.prepare(`
       INSERT INTO trip_documents (slug, kind, body)
       SELECT slug, 'weather', ? FROM trips WHERE slug = ? AND weather_checked_at = ?
       ON CONFLICT(slug, kind) DO UPDATE SET body = excluded.body
       WHERE COALESCE(julianday(json_extract(trip_documents.body, '$.updatedAt')), 0)
         < julianday(json_extract(excluded.body, '$.updatedAt'))
       RETURNING json_extract(body, '$.updatedAt') AS updated_at
-    `).bind(JSON.stringify(weather), trip.slug, now).first('updated_at');
-    return saved ? { slug: trip.slug, status: 'updated', updatedAt: saved }
-      : { slug: trip.slug, status: 'superseded' };
+    `).bind(JSON.stringify(weather), trip.slug, now);
+    const [saved] = await db.batch([save, release()]);
+    if (!saved.results.length) return { slug: trip.slug, status: 'superseded' };
+    console.info('Weather updated', JSON.stringify({ slug: trip.slug, updatedAt }));
+    return { slug: trip.slug, status: 'updated', updatedAt };
   } catch (error) {
-    // 제공사의 요청 제한은 다음 시간에 다시 확인합니다.
+    const updatedAt = previous.updatedAt ?? null;
     if (error.status === 429) {
+      const retryAt = error.retryAt ?? (Math.floor(Date.now() / hourMs) + 1) * hourMs;
       console.error('Open-Meteo rate limited', JSON.stringify({ slug: trip.slug, ...error.rateLimit }));
-      return { slug: trip.slug, status: 'rate_limited' };
+      await release(retryAt).run();
+      return { slug: trip.slug, status: 'rate_limited', updatedAt, retryAt: new Date(retryAt).toISOString() };
     }
-    // 같은 시간의 재시도는 허용하고 이미 저장된 예보는 유지합니다.
-    await db.prepare('UPDATE trips SET weather_checked_at = ? WHERE slug = ? AND weather_checked_at = ?')
-      .bind(hourStart - 1, trip.slug, now).run();
-    throw error;
+    await release().run();
+    console.error('Weather update failed', trip.slug, error.message);
+    return { slug: trip.slug, status: 'failed', updatedAt };
   }
 }
 
 async function refreshTravelWeather(db) {
   const { results: trips } = await db.prepare(`
-    SELECT t.slug, t.timezone, p.body AS plan_body, w.body AS weather_body
+    SELECT t.slug, t.timezone, p.body AS plan_body
     FROM trips t
-    JOIN trip_documents p ON p.slug = t.slug AND p.kind = 'plan'
-    LEFT JOIN trip_documents w ON w.slug = t.slug AND w.kind = 'weather'
+    JOIN trip_plan_documents p ON p.slug = t.slug
     ORDER BY t.starts_on, t.slug
   `).all();
-  const now = Date.now();
   const results = [];
   for (const trip of trips) {
     try {
-      results.push(await updateWeatherTrip(db, trip, now));
+      results.push(await updateWeatherTrip(db, trip));
     } catch (error) {
       console.error('Weather update failed', trip.slug, error.message);
       results.push({ slug: trip.slug, status: 'failed' });

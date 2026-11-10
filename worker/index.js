@@ -15,8 +15,9 @@ async function travelData(db, path) {
   if (!match) return new Response('Not found', { status: 404 });
 
   const [, slug, kind] = match;
-  const body = await db.prepare('SELECT body FROM trip_documents WHERE slug = ? AND kind = ?')
-    .bind(slug, kind).first('body');
+  const body = kind === 'plan'
+    ? await db.prepare('SELECT body FROM trip_plan_documents WHERE slug = ?').bind(slug).first('body')
+    : await db.prepare('SELECT body FROM trip_documents WHERE slug = ? AND kind = ?').bind(slug, kind).first('body');
   return body === null || body === undefined
     ? new Response('Not found', { status: 404 })
     : new Response(body, { headers: jsonHeaders });
@@ -41,7 +42,7 @@ function webAsset(url) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (url.pathname === '/mcp' && request.method === 'POST') return weatherMcp(request, env);
+    if (url.pathname === '/mcp' && request.method === 'POST') return siteMcp(request, env);
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET, HEAD' } });
     }
@@ -64,7 +65,13 @@ const weatherTool = {
   inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 };
 
-async function weatherMcp(request, env) {
+const normalizeTool = {
+  name: 'normalize_trip_plans',
+  description: 'Copy legacy itinerary documents into relational tables once per trip. Owner only.',
+  inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+};
+
+async function siteMcp(request, env) {
   let message;
   try {
     message = await request.json();
@@ -80,15 +87,28 @@ async function weatherMcp(request, env) {
   if (message.method === 'server/discover') {
     return reply({ supportedVersions: ['2026-07-28'], capabilities: { tools: {} } });
   }
-  if (message.method === 'tools/list') return reply({ tools: [weatherTool] });
+  if (message.method === 'tools/list') return reply({ tools: [weatherTool, normalizeTool] });
   if (message.method !== 'tools/call') return error(-32601, 'Method not found');
-  if (message.params?.name !== weatherTool.name) return error(-32602, 'Unknown tool');
+  const name = message.params?.name;
+  if (name !== weatherTool.name && name !== normalizeTool.name) return error(-32602, 'Unknown tool');
 
   // Sites가 제공하는 확인된 계정만 예보를 갱신할 수 있습니다.
   const caller = request.headers.get('oai-authenticated-user-email')?.toLowerCase();
   if (!request.headers.has('oai-authenticated-user-id') || !env.WEATHER_OWNER_EMAIL ||
       caller !== env.WEATHER_OWNER_EMAIL.toLowerCase()) {
-    return reply({ isError: true, content: [{ type: 'text', text: 'Weather updates require the Site owner.' }] });
+    const text = name === weatherTool.name ? 'Weather updates require the Site owner.' : 'Itinerary migration requires the Site owner.';
+    return reply({ isError: true, content: [{ type: 'text', text }] });
+  }
+  if (name === normalizeTool.name) {
+    try {
+      const results = await env.DB.batch(itineraryBackfill.map((sql) => env.DB.prepare(sql)));
+      return reply({ content: [{ type: 'text', text: JSON.stringify({
+        migratedTrips: results.at(-1).meta.changes,
+      }) }] });
+    } catch (error) {
+      console.error('Itinerary migration failed', error.message);
+      return reply({ isError: true, content: [{ type: 'text', text: 'The itinerary migration could not be completed.' }] });
+    }
   }
   try {
     const results = await refreshTravelWeather(env.DB);
