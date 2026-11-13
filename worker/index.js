@@ -46,6 +46,9 @@ export default {
     if (url.pathname === '/admin/meal-options' && request.method === 'PUT') {
       return updateMealOptions(request, env);
     }
+    if (url.pathname === '/admin/itinerary-verification' && request.method === 'PUT') {
+      return updateVerifiedDetails(request, env);
+    }
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET, HEAD' } });
     }
@@ -62,17 +65,18 @@ export default {
   },
 };
 
-async function updateMealOptions(request, env) {
+function canEditItinerary(request, env) {
   const [secret, expiresAt] = (env.MEAL_EDIT_ACCESS || '').split(':');
   const supplied = request.headers.get('Authorization') || '';
   const expected = `Bearer ${secret}`;
   const encoder = new TextEncoder();
-  if (!/^[a-f0-9]{64}$/.test(secret) || !(Number(expiresAt) > Date.now()) ||
-      supplied.length !== expected.length ||
-      !crypto.subtle.timingSafeEqual(encoder.encode(supplied), encoder.encode(expected))) {
-    return new Response('Not found', { status: 404 });
-  }
+  return /^[a-f0-9]{64}$/.test(secret) && Number(expiresAt) > Date.now() &&
+    supplied.length === expected.length &&
+    crypto.subtle.timingSafeEqual(encoder.encode(supplied), encoder.encode(expected));
+}
 
+async function updateMealOptions(request, env) {
+  if (!canEditItinerary(request, env)) return new Response('Not found', { status: 404 });
   let edit;
   try {
     edit = await request.json();
@@ -115,6 +119,60 @@ async function updateMealOptions(request, env) {
       .bind(note, JSON.stringify(next), index, ...target, slug),
   ]);
   return Response.json({ updated: item.meta.changes }, { status: item.meta.changes === 1 ? 200 : 409 });
+}
+
+async function updateVerifiedDetails(request, env) {
+  if (!canEditItinerary(request, env)) return new Response('Not found', { status: 404 });
+  let payload;
+  try {
+    payload = await request.json();
+  } catch {
+    return new Response('Invalid JSON', { status: 400 });
+  }
+  const { slug, changes, translations } = payload ?? {};
+  if (typeof slug !== 'string' || !Array.isArray(changes) || !changes.length || changes.length > 60) {
+    return new Response('Invalid update', { status: 400 });
+  }
+  const db = env.DB;
+  const { results } = await db.prepare(
+    'SELECT item_index, note, cost, details FROM trip_items WHERE slug = ? ORDER BY item_index',
+  ).bind(slug).all();
+  const edits = new Map();
+  for (const { index, path, before, after } of changes) {
+    if (!Number.isInteger(index) || !results[index] || typeof path !== 'string' ||
+        !/^(note|tip|cost|options\.\d+\.(tip|con\.\d+))$/.test(path)) {
+      return new Response('Invalid card field', { status: 400 });
+    }
+    const textField = path !== 'cost';
+    if ((textField && (typeof after !== 'string' || !after || !['en', 'ja'].every((lang) =>
+      Object.hasOwn(translations?.[lang] ?? {}, after) && typeof translations[lang][after] === 'string'
+    ))) || (!textField && (!Number.isSafeInteger(after) || after < 0))) {
+      return new Response('Invalid value or missing translation', { status: 400 });
+    }
+    const original = results[index];
+    const edited = edits.get(index) ?? { note: original.note, cost: original.cost, details: JSON.parse(original.details) };
+    const keys = path.split('.');
+    const field = keys.pop();
+    const target = path === 'note' || path === 'cost' ? edited : keys.reduce((object, key) => object?.[key], edited.details);
+    if (!target || (target[field] ?? null) !== before) return new Response('Card changed', { status: 409 });
+    target[field] = after;
+    edits.set(index, edited);
+  }
+  const statements = [...edits].map(([index, edited]) => {
+    const original = results[index];
+    return db.prepare(`UPDATE trip_items SET note = ?, cost = ?,
+      details = CASE WHEN details = ? AND note IS ? AND cost IS ? THEN ? ELSE NULL END
+      WHERE slug = ? AND item_index = ?`).bind(
+      edited.note, edited.cost, original.details, original.note, original.cost,
+      JSON.stringify(edited.details), slug, original.item_index,
+    );
+  });
+  const i18n = await db.prepare("SELECT 1 FROM trip_documents WHERE slug = ? AND kind = 'i18n'").bind(slug).first();
+  if (!i18n) return new Response('Missing translation document', { status: 409 });
+  statements.push(db.prepare("UPDATE trip_documents SET body = json_patch(body, json(?)) WHERE slug = ? AND kind = 'i18n'")
+    .bind(JSON.stringify({ en: translations.en, ja: translations.ja }), slug));
+  await db.batch(statements);
+  return Response.json({ updated: edits.size });
 }
 
 const weatherTool = {
