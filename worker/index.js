@@ -43,6 +43,9 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === '/mcp' && request.method === 'POST') return siteMcp(request, env);
+    if (url.pathname === '/admin/meal-options' && request.method === 'PUT') {
+      return updateMealOptions(request, env);
+    }
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET, HEAD' } });
     }
@@ -58,6 +61,61 @@ export default {
     return request.method === 'HEAD' ? new Response(null, response) : response;
   },
 };
+
+async function updateMealOptions(request, env) {
+  const [secret, expiresAt] = (env.MEAL_EDIT_ACCESS || '').split(':');
+  const supplied = request.headers.get('Authorization') || '';
+  const expected = `Bearer ${secret}`;
+  const encoder = new TextEncoder();
+  if (!/^[a-f0-9]{64}$/.test(secret) || !(Number(expiresAt) > Date.now()) ||
+      supplied.length !== expected.length ||
+      !crypto.subtle.timingSafeEqual(encoder.encode(supplied), encoder.encode(expected))) {
+    return new Response('Not found', { status: 404 });
+  }
+
+  let edit;
+  try {
+    edit = await request.json();
+  } catch {
+    return new Response('Invalid JSON', { status: 400 });
+  }
+  const { slug, date, time, title, expectedNote, note, options, translations } = edit ?? {};
+  const validText = (value) => typeof value === 'string' && value.length > 0;
+  if (![slug, date, time, title, expectedNote, note].every(validText) || expectedNote === note ||
+      !Array.isArray(options) || options.length !== 5 || options.some((option) =>
+        !option || ![option.name, option.tip].every(validText) ||
+        !Array.isArray(option.pro) || option.pro.length !== 5 || !option.pro.every(validText) ||
+        !Array.isArray(option.con) || option.con.length > 5 || !option.con.every(validText))) {
+    return new Response('Invalid meal update', { status: 400 });
+  }
+  const strings = [note, ...options.flatMap((option) => [option.name, option.tip, ...option.pro, ...option.con])];
+  if (!['en', 'ja'].every((lang) => strings.every((key) =>
+    Object.hasOwn(translations?.[lang] || {}, key) && validText(translations[lang][key])))) {
+    return new Response('Incomplete translations', { status: 400 });
+  }
+
+  const where = `slug = ? AND time = ? AND title = ? AND note = ? AND card_type = 'choice'
+    AND json_array_length(details, '$.options') = 7
+    AND item_index IN (SELECT item_index FROM trip_day_plan_items WHERE slug = ? AND date = ?)`;
+  const target = [slug, time, title, expectedNote, slug, date];
+  const db = env.DB;
+  const { results } = await db.prepare(`SELECT item_index, details FROM trip_items WHERE ${where}`)
+    .bind(...target).all();
+  if (results.length !== 1) return new Response('Meal changed or missing', { status: 409 });
+  const { item_index: index, details } = results[0];
+  const next = [...options, ...JSON.parse(details).options.slice(-2)];
+  const [, item] = await db.batch([
+    db.prepare(`UPDATE trip_documents SET body = json_patch(body, json(?))
+      WHERE slug = ? AND kind = 'i18n'
+      AND EXISTS (SELECT 1 FROM trip_items WHERE item_index = ? AND ${where})`)
+      .bind(JSON.stringify({ en: translations.en, ja: translations.ja }), slug, index, ...target),
+    db.prepare(`UPDATE trip_items SET note = ?, details = json_set(details, '$.options', json(?))
+      WHERE item_index = ? AND ${where}
+      AND EXISTS (SELECT 1 FROM trip_documents WHERE slug = ? AND kind = 'i18n')`)
+      .bind(note, JSON.stringify(next), index, ...target, slug),
+  ]);
+  return Response.json({ updated: item.meta.changes }, { status: item.meta.changes === 1 ? 200 : 409 });
+}
 
 const weatherTool = {
   name: 'refresh_weather',
