@@ -1,58 +1,29 @@
 name: pages
 
-# main에 푸시하면 날씨를 갱신하고 GitHub Pages에 배포합니다. 매시간 날씨 갱신 후 다시 배포합니다.
+# main에 푸시하면 GitHub Pages에 배포합니다. 날씨 자동 갱신은 하지 않습니다.
+# 날씨를 받으려면 node scripts/weather.mjs를 실행해 data/<슬러그>/weather.json을 커밋합니다.
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - data/*/weather.json
-  schedule:
-    - cron: "17 * * * *"
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
-  actions: write
+
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: false
 
 jobs:
-  weather:
-    runs-on: ubuntu-latest
-    concurrency:
-      group: weather-update
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: main
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      # 예보 조회가 실패해도 마지막 예보로 배포는 계속합니다.
-      - run: node scripts/weather.mjs || echo "::warning::날씨 갱신 실패. 마지막 예보를 유지합니다"
-      - name: commit
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/*/weather.json
-          git diff --cached --quiet || (git commit -m "날씨 갱신" && git pull --rebase && git push)
-
   deploy:
-    needs: weather
-    if: always()
     runs-on: ubuntu-latest
-    concurrency:
-      group: pages-deploy
-      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      # 날씨 작업이 올린 커밋까지 포함하도록 main의 최신 상태를 받습니다.
       - uses: actions/checkout@v4
-        with:
-          ref: main
       - run: bash scripts/pages.sh
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
@@ -60,36 +31,3 @@ jobs:
           path: _site
       - id: deployment
         uses: actions/deploy-pages@v4
-
-  # GitHub 예약 실행은 몇 시간씩 건너뛰는 일이 잦아서, 끝나면 1시간 뒤 다음 실행을 직접 요청합니다.
-  # 새 실행이 시작되면 이전 대기 작업은 취소되어 대기는 항상 하나만 남습니다.
-  # 예보를 받을 여행(오늘부터 16일 안에 걸치는 여행, 현지 시간대 기준)이 없으면 멈추고, 예약 실행이 다시 이어 줍니다.
-  next:
-    needs: deploy
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 70
-    concurrency:
-      group: weather-next
-      cancel-in-progress: true
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          sparse-checkout: |
-            data/trips.json
-            data/*/plan.json
-          sparse-checkout-cone-mode: false
-      - run: sleep 3540
-      - name: dispatch
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          for SLUG in $(jq -r '.[].slug' data/trips.json); do
-            TRIP_TZ=$(jq -r '.trip.timezone' "data/$SLUG/plan.json")
-            FIRST_DAY=$(jq -r '.days[0].date | gsub("-"; "")' "data/$SLUG/plan.json")
-            LAST_DAY=$(jq -r '.days[-1].date | gsub("-"; "")' "data/$SLUG/plan.json")
-            if [ "$(TZ=$TRIP_TZ date +%Y%m%d)" -le "$LAST_DAY" ] && [ "$(TZ=$TRIP_TZ date -d '+15 days' +%Y%m%d)" -ge "$FIRST_DAY" ]; then
-              gh workflow run pages.yml --repo "$GITHUB_REPOSITORY" --ref main
-              break
-            fi
-          done

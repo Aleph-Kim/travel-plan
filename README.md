@@ -8,16 +8,16 @@
 
 ## 운영과 배포
 
-- `main`에 푸시하면 GitHub Actions(`.github/workflows/pages.yml`)가 날씨를 갱신하고 GitHub Pages에 배포합니다. 따로 배포를 요청할 필요가 없습니다.
+- `main`에 푸시하면 GitHub Actions(`.github/workflows/pages.yml`)가 GitHub Pages에 배포합니다. 따로 배포를 요청할 필요가 없습니다.
 - 배포본은 `scripts/pages.sh`가 `_site/`에 만듭니다. 주소 구조는 이전과 같습니다: 루트와 `/travle-plan/`은 여행 목록, 여행 주소는 `/travle-plan/<슬러그>/`, 데이터는 `/travle-plan/data/…`.
 - 일정을 바꿀 때는 `data/<슬러그>/plan.json`과 `i18n.json`을 직접 고쳐 `main`에 푸시합니다. 2026년 11월 14일 운영 D1에서 내보낸 내용이 원본입니다. 오사카 `build.py`, `i18n.py`는 그 이전 데이터라 다시 실행하면 최신 변경(식사 후보, 확인 결과)이 사라집니다.
-- 날씨는 같은 워크플로가 매시간 Open-Meteo 예보를 받아 `data/<슬러그>/weather.json`에 커밋하고 다시 배포합니다. 규칙은 `worker/weather.js`를 그대로 씁니다([갱신 주기](#갱신-주기)).
+- 날씨는 자동으로 갱신하지 않고 마지막으로 받은 예보(`data/<슬러그>/weather.json`)를 표시합니다. 갱신하려면 `node scripts/weather.mjs`를 실행해 커밋합니다. 규칙은 `worker/weather.js`를 그대로 씁니다([갱신 주기](#갱신-주기)).
 - 오프라인에서는 기기에 저장된 마지막 응답을 사용합니다. 언어, 글자 크기, 인터랙션 효과, 선택지와 확인한 안내는 아래 기기 저장 규칙을 따릅니다. 지도는 구글 지도 링크로 엽니다.
 
 ### GitHub Pages 설정 (처음 한 번)
 
 1. 저장소 Settings → Pages → Source를 "GitHub Actions"로 바꿉니다.
-2. Actions 탭에서 `pages` 워크플로를 실행하거나 `main`에 푸시하면 `https://aleph-kim.github.io/travel-plan/`에 배포됩니다.
+2. `main`에 푸시하거나 Actions 탭에서 `pages` 워크플로를 실행하면 `https://aleph-kim.github.io/travel-plan/`에 배포됩니다.
 3. 사용자 도메인: 클라우드플레어 DNS의 `travel` 레코드를 CNAME `aleph-kim.github.io`(DNS only)로 바꾸고, Pages 설정의 Custom domain에 `travel.aleph.kr`을 입력합니다. 원래 레코드로 되돌리면 Sites 버전으로 돌아갑니다.
 
 ### 이전 Sites 버전
@@ -34,7 +34,7 @@
 | `web/travle-plan/<슬러그>/` | 여행별 페이지 메타데이터, PWA 설정과 아이콘 |
 | `data/trips.json`, `data/<슬러그>/*.json` | 여행 목록, 일정, 번역, 날씨 (운영 데이터) |
 | `scripts/pages.sh`, `scripts/weather.mjs` | GitHub Pages 배포본 만들기, 날씨 갱신 |
-| `.github/workflows/pages.yml` | 푸시와 매시간 실행: 날씨 갱신, Pages 배포 |
+| `.github/workflows/pages.yml` | `main` 푸시 때 Pages 배포 |
 | `worker/index.js`, `worker/weather.js` | 이전 Sites 버전. `weather.js`의 예보 규칙은 Pages 버전도 사용 |
 | `drizzle/` | 이전 Sites 버전의 D1 스키마 |
 | `LICENSE` | 적용 범위는 [라이선스](#라이선스) 참고 |
@@ -169,7 +169,7 @@
 ## 날씨와 일정 자동 조정
 
 ### 비 판정과 맞바꿈
-- 날씨 작업은 여행의 `locations`에 등록된 지점별 Open-Meteo 예보를 받아 `weather.json`에 저장합니다.
+- `scripts/weather.mjs`는 여행의 `locations`에 등록된 지점별 Open-Meteo 예보를 받아 `weather.json`에 저장합니다.
 - 그날 일정의 `weather` 지점 최대 강수 확률이 `rainThreshold` 이상이면 비 오는 날로 보고 `rain` 일정을 보여 줌
 - 맞바꿈 규칙 (`trip.swap`)
   - `weights`에 있는 일정 날에 비가 오면 `base` 일정 날짜와 맞바꿈
@@ -181,10 +181,10 @@
 
 ### 갱신 주기
 
-- GitHub Actions가 매시 17분에 실행하고, 끝난 뒤 1시간 후 다음 실행을 직접 요청합니다(GitHub 예약 실행이 건너뛰는 경우 대비). 예보 범위에 드는 여행이 없으면 직접 요청은 멈춥니다.
+- 자동 갱신은 꺼져 있습니다. `scripts/weather.mjs`를 직접 실행할 때만 갱신합니다.
 - 여행지 시간대 기준으로 여행 기간이 Open-Meteo의 16일 예보 범위와 겹치면 갱신합니다. 지난 여행의 마지막 예보와 확정 일정은 보관합니다.
 - 한 여행의 지점은 한 요청으로 조회합니다. 동시 요청 제한을 받으면 잠시 기다려 한 번 더 조회합니다. 제한이 이어지면 `Retry-After`로 지정된 시각까지 재요청을 보류하며, 헤더가 없으면 다음 시간부터 다시 조회합니다.
-- 조회가 실패하면 마지막 정상 예보와 갱신 시각을 그대로 두고 배포는 계속합니다.
+- 조회가 실패하면 마지막 정상 예보와 갱신 시각을 그대로 둡니다.
 
 ## 오프라인과 업데이트
 
