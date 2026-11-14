@@ -128,7 +128,7 @@
   }
   var I18N = null, rawPlan = null;
   // 장소 ID, 검색어처럼 지도에 넘기는 값은 번역하지 않음
-  var KEEP = { pid: 1, q: 1, home: 1, from: 1, to: 1, timezone: 1, url: 1 };
+  var KEEP = { pid: 1, q: 1, home: 1, from: 1, to: 1, timezone: 1, url: 1, map: 1 };
   function localize(o, k) {
     if (typeof o === 'string') return KEEP[k] || LANG === 'ko' || !I18N || !I18N[LANG] ? o : (I18N[LANG][o] || o);
     if (Array.isArray(o)) return o.map(function (x) { return localize(x, k); });
@@ -347,7 +347,8 @@
     if (s.note) b.appendChild(lines('note', s.note));
     if (s.tip) b.appendChild(lines('tip', s.tip));
     var r = reviews(s); if (r) b.appendChild(r);
-    var a = s.pid || s.url ? acts(s.name, s.pid && placeLink(s), s.pid && placeEmbed(s.pid), s.url) : null;
+    // 장소 ID가 없는 곳은 map(구글 지도 공유 링크)으로 지도를 엶
+    var a = s.pid || s.map || s.url ? acts(s.name, s.pid ? placeLink(s) : s.map, s.pid && placeEmbed(s.pid), s.url) : null;
     if (a) b.appendChild(a);
     return b;
   }
@@ -375,7 +376,7 @@
       if (o.note) inner.appendChild(lines('note', o.note));
       if (o.tip) inner.appendChild(lines('tip', o.tip));
       var r = reviews(o); if (r) inner.appendChild(r);
-      var a = o.pid ? acts(o.name, placeLink(o), placeEmbed(o.pid)) : null; if (a) inner.appendChild(a);
+      var a = o.pid || o.map ? acts(o.name, o.pid ? placeLink(o) : o.map, o.pid && placeEmbed(o.pid)) : null; if (a) inner.appendChild(a);
       // 펼쳐 볼 내용이 없는 선택지(생략 등)는 꺾쇠를 달지 않음
       var opt = el('div', { class: 'opt' + (on ? ' on' : '') + (inner.childNodes.length ? '' : ' bare') }, [el('div', { class: 'opt-row' }, [pick, more]), el('div', { class: 'opt-body' }, [inner])]);
       more.addEventListener('click', function () { opt.classList.toggle('peek'); });
