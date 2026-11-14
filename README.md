@@ -220,7 +220,7 @@
 ## 새 여행에 쓰는 법
 
 1. `연-월-지역` 형식으로 슬러그를 정합니다.
-2. `data/trips.json`에 목록 정보를 추가하고, `data/<슬러그>/plan.json`과 영어·일본어 번역 `i18n.json`을 만듭니다. 날씨는 일정에 등록한 지역의 좌표와 `trip.timezone`으로 자동 갱신됩니다.
+2. `data/trips.json`에 목록 정보를 추가하고, `data/<슬러그>/plan.json`과 영어·일본어 번역 `i18n.json`을 만듭니다. 날씨는 `node scripts/weather.mjs`로 받으며, 일정에 등록한 지역의 좌표와 `trip.timezone`을 씁니다.
 3. `web/travle-plan/<슬러그>/`에 여행 페이지와 PWA 설정, 아이콘을 추가합니다. 기존 여행 폴더를 복사해서 문서 제목, 공유 메타데이터, 아이콘과 앱 이름을 맞춥니다.
 4. `main`에 푸시하면 배포됩니다.
 
