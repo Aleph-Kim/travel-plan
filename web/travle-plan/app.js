@@ -1259,7 +1259,7 @@
       if (pull >= LIMIT) {
         ptr.classList.add('load');
         move(56, 200);
-        setTimeout(function () { location.reload(); }, 250);
+        setTimeout(applyAndReload, 250);
       } else move(0, 250);
     }, { passive: true });
   })();
@@ -1298,8 +1298,19 @@
     };
     sw.postMessage('check', [ch.port2]);
   }
-  document.getElementById('upd-now').addEventListener('click', function () { location.reload(); });
-  document.getElementById('reload-btn').addEventListener('click', function () { location.reload(); });
+  // 서비스 워커에 받아 둔 새 버전을 먼저 반영하게 한 뒤 새로고침 (응답이 없으면 3초 뒤 그냥 새로고침)
+  function applyAndReload() {
+    var sw = navigator.serviceWorker && navigator.serviceWorker.controller;
+    if (!sw) { location.reload(); return; }
+    var done = false;
+    var go = function () { if (done) return; done = true; location.reload(); };
+    var ch = new MessageChannel();
+    ch.port1.onmessage = go;
+    sw.postMessage('apply', [ch.port2]);
+    setTimeout(go, 3000);
+  }
+  document.getElementById('upd-now').addEventListener('click', applyAndReload);
+  document.getElementById('reload-btn').addEventListener('click', applyAndReload);
   window.addEventListener('online', checkUpdate);
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState !== 'visible' || !plan) return;

@@ -94,6 +94,9 @@ self.addEventListener('message', (event) => {
   const port = event.ports[0];
   if (!port || LEGACY) return;
   if (event.data === 'check') event.waitUntil(stage().then((r) => port.postMessage(r), () => port.postMessage({ offline: true })));
+  // 새로고침 직전에 받아 둔 새 버전을 직접 반영함. iOS 홈 화면 앱은 새로고침이 내비게이션 처리를 거치지 않아
+  // 받아 둔 버전이 그대로 남고 같은 안내가 다시 뜨는 경우가 있음
+  if (event.data === 'apply') event.waitUntil(promote().then(() => port.postMessage(true), () => port.postMessage(false)));
 });
 
 async function fromActive(request, key) {
