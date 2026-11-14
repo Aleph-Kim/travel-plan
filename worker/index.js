@@ -1,4 +1,6 @@
-const jsonHeaders = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-cache' };
+// 개인 여행 일정이라 검색 엔진이 화면과 데이터를 수집하지 않게 합니다.
+const noIndex = { 'X-Robots-Tag': 'noindex, nofollow' };
+const jsonHeaders = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-cache', ...noIndex };
 const dataRoot = '/travle-plan/data/';
 
 async function travelData(db, path) {
@@ -30,7 +32,7 @@ function webAsset(url) {
   if (Object.hasOwn(assets, assetPath)) {
     const [type, value] = assets[assetPath];
     const body = type === 'image/png' ? Uint8Array.from(atob(value), (character) => character.charCodeAt(0)) : value;
-    return new Response(body, { headers: { 'Content-Type': type, 'Cache-Control': 'no-cache' } });
+    return new Response(body, { headers: { 'Content-Type': type, 'Cache-Control': 'no-cache', ...noIndex } });
   }
   if (path === '/travle-plan' || Object.hasOwn(assets, path + '/index.html')) {
     url.pathname += '/';
