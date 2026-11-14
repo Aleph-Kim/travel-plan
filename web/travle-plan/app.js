@@ -583,7 +583,8 @@
       if (hh === nowH) out += '<rect x="' + (i * CW + 3) + '" y="2" width="' + (CW - 6) + '" height="' + (H - 4) + '" rx="12" fill="rgba(255,255,255,.12)"/>';
       out += '<text x="' + cx + '" y="18" class="t">' + label + '</text>';
       out += '<svg x="' + (cx - 16) + '" y="28" width="32" height="32" viewBox="0 0 64 64">' + wxIcon(h[5], hourNight(w, hh)).replace(/^<svg[^>]*>|<\/svg>$/g, '') + '</svg>';
-      if (h[3] != null && h[3] > 0) out += '<text x="' + cx + '" y="78" class="p' + (h[3] >= plan.rainThreshold ? ' wet' : '') + '">' + h[3] + '%</text>';
+      var pop = Number(h[3]);
+      if (pop > 0) out += '<text x="' + cx + '" y="78" class="p' + (pop >= plan.rainThreshold ? ' wet' : '') + '">' + pop + '%</text>';
       var txt = tab === 'wind' ? vals[i].toFixed(1) : Math.round(vals[i]) + unit;
       out += '<text x="' + cx + '" y="' + (y - 10).toFixed(1) + '" class="v">' + txt + '</text>';
     });

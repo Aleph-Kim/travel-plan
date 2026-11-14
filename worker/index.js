@@ -130,7 +130,11 @@ async function updateVerifiedDetails(request, env) {
     return new Response('Invalid JSON', { status: 400 });
   }
   const { slug, changes, translations } = payload ?? {};
-  if (typeof slug !== 'string' || !Array.isArray(changes) || !changes.length || changes.length > 60) {
+  const plainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+  // 요금만 바꾸는 요청은 번역 없이 보낼 수 있습니다.
+  if (typeof slug !== 'string' || !Array.isArray(changes) || !changes.length || changes.length > 60 ||
+      (translations !== undefined && !plainObject(translations)) ||
+      ['en', 'ja'].some((lang) => translations?.[lang] !== undefined && !plainObject(translations[lang]))) {
     return new Response('Invalid update', { status: 400 });
   }
   const db = env.DB;
@@ -140,7 +144,7 @@ async function updateVerifiedDetails(request, env) {
   const edits = new Map();
   for (const { index, path, before, after } of changes) {
     if (!Number.isInteger(index) || !results[index] || typeof path !== 'string' ||
-        !/^(note|tip|cost|options\.\d+\.(tip|con\.\d+))$/.test(path)) {
+        !/^(note|tip|cost|options\.\d{1,2}\.(tip|con\.\d{1,2}))$/.test(path)) {
       return new Response('Invalid card field', { status: 400 });
     }
     const textField = path !== 'cost';
@@ -155,6 +159,8 @@ async function updateVerifiedDetails(request, env) {
     const field = keys.pop();
     const target = path === 'note' || path === 'cost' ? edited : keys.reduce((object, key) => object?.[key], edited.details);
     if (!target || (target[field] ?? null) !== before) return new Response('Card changed', { status: 409 });
+    // 목록 항목은 기존 위치를 바꾸거나 바로 다음 위치에 하나 추가하는 것만 허용합니다.
+    if (Array.isArray(target) && Number(field) > target.length) return new Response('Invalid card field', { status: 400 });
     target[field] = after;
     edits.set(index, edited);
   }
@@ -170,8 +176,15 @@ async function updateVerifiedDetails(request, env) {
   const i18n = await db.prepare("SELECT 1 FROM trip_documents WHERE slug = ? AND kind = 'i18n'").bind(slug).first();
   if (!i18n) return new Response('Missing translation document', { status: 409 });
   statements.push(db.prepare("UPDATE trip_documents SET body = json_patch(body, json(?)) WHERE slug = ? AND kind = 'i18n'")
-    .bind(JSON.stringify({ en: translations.en, ja: translations.ja }), slug));
-  await db.batch(statements);
+    .bind(JSON.stringify({ en: translations?.en ?? {}, ja: translations?.ja ?? {} }), slug));
+  try {
+    await db.batch(statements);
+  } catch (error) {
+    // 읽은 뒤 다른 수정이 먼저 저장되면 details가 NULL이 되어 NOT NULL 제약으로 전체가 취소됩니다.
+    if (/NOT NULL/i.test(error.message)) return new Response('Card changed', { status: 409 });
+    console.error('Itinerary update failed', error.message);
+    return new Response('Travel data unavailable', { status: 503 });
+  }
   return Response.json({ updated: edits.size });
 }
 
